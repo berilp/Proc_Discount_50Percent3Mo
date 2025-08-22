@@ -1,0 +1,257 @@
+//notes 
+	Copyright (c) 2025 by Yardi Systems, Inc.
+	Name
+		sp_PSC_50Per3MoDiscount.pkg
+	Description
+		Procedure to insert a prorated charge after 50 percent for 3 months discount ends and billing is switched from ANN to FOM
+	Notes
+		Package is for SQL Server and client specific. 
+	Client 
+    100070122
+    Canadian Mini Warehouse Properties Company
+		
+	Created
+		08/21/2025 by Beril Pehlivan  - Case#16959881 
+
+        exec sp_PSC_50Per3MoDiscount @TenantID;
+//end notes 
+
+
+//sql 
+
+IF EXISTS(SELECT 1 
+          FROM   sysobjects 
+          WHERE  NAME = 'sp_PSC_50Per3MoDiscount') 
+DROP PROCEDURE sp_PSC_50Per3MoDiscount
+
+GO
+
+CREATE PROCEDURE sp_PSC_50Per3MoDiscount
+  @TenantID NUMERIC, 
+  @UnitID NUMERIC
+AS 
+  BEGIN
+  SET NOCOUNT ON;
+
+DECLARE @NewHMY NUMERIC;
+DECLARE @CurrentDate DATE;
+DECLARE @EndofCurrentMonth DATE;
+DECLARE @DaysRemaining int;
+DECLARE @DaysInCurrentMonth int;
+
+
+SELECT @NewHMY = ISNULL(MAX(HMY), 0) + 1 FROM trans WHERE iType = 7;
+/* Current date should be the month the discount ends */
+SELECT @CurrentDate = CONVERT(date, GETDATE());
+SELECT @DaysRemaining = DATEDIFF(day, @CurrentDate, EOMONTH(@CurrentDate));
+SELECT @DaysInCurrentMonth = DAY(EOMONTH(@CurrentDate));
+SELECT @EndofCurrentMonth = EOMONTH(@CurrentDate); 
+
+
+/* Step 1 - End the existing Rent Charge on the same date as the Discount ends */
+
+update cr set cr.dtto = crd.dtto
+from camrule cr 
+inner join tenant t on t.hmyperson = cr.htenant
+inner join camrule crd on crd.htenant = cr.htenant and cr.dtfrom = crd.dtfrom and cr.hunit = crd.hunit 
+where cr.hchargecode = 10 
+and crd.hchargecode = 11 
+and crd.notes = '3 Mths. @ 50% Off'
+/* Current date should be the month the discount ends */
+and crd.dtto >= DATEADD(day, 1, @CurrentDate)   
+  AND crd.dtto <  DATEADD(day, 2, @CurrentDate)
+and cr.htenant = @TenantID; 
+
+update cs set cs.dtto = csd.dtto
+from commschedule cs 
+inner join commschedule csd on csd.htenant = cs.htenant and csd.dtfrom = cs.dtfrom 
+inner join camrule crd on crd.hschedule = csd.hmy
+where cs.hchargecode = 10 and csd.hchargecode = 11 
+and crd.notes = '3 Mths. @ 50% Off'
+and csd.dtto >= DATEADD(day, 1, @CurrentDate)   
+  AND csd.dtto <  DATEADD(day, 2, @CurrentDate)
+AND cs.htenant = @TenantID;
+
+
+/*Step 2 - create a prorated charge for rest of the month */
+
+insert into
+  trans (
+    hBaseCurrency,
+    hTranCurrency,
+    sTranAmount,
+    hmy,
+    iType,
+    hProp,
+    bOpen,
+    hPerson,
+    uRef,
+    sDateOccurred,
+    uPostDate,
+    sTotalAmount,
+    hOffsetAcct,
+    hAccrualAcct,
+    iType1,
+    hRetentionAcct,
+    sUserDefined2,
+    HoldPayment,
+    ConsolidateCheck,
+    sNotes,
+    hUnit,
+    SOTHERDATE2,
+    SOTHERDATE3,
+    SOTHERDATE4,
+    hVat,
+    sVatAmount,
+    sVatAmount2,
+    hVatTranType,
+    sDateCreated,
+    dtStamp
+  )
+
+  select hBaseCurrency,
+    hTranCurrency,
+    (sTranAmount/@DaysInCurrentMonth)*@DaysRemaining,
+    @NewHMY,
+    itype,
+    hProp,
+    bOpen,
+    hPerson,
+    uRef,
+    CONVERT(DATETIME, DATEADD(day, 1, @CurrentDate), 101),
+    CONVERT(DATETIME, DATEADD(day, 1, @CurrentDate), 101),
+    (sTotalAmount/@DaysInCurrentMonth)*@DaysRemaining,
+    hOffsetAcct,
+    hAccrualAcct,
+    iType1,
+    hRetentionAcct,
+    sUserDefined2,
+    HoldPayment,
+    ConsolidateCheck,
+    sNotes,
+    hUnit,
+    CONVERT(DATETIME, DATEADD(day, 1, @CurrentDate), 101),
+    convert(datetime, @EndofCurrentMonth, 101),
+    SOTHERDATE4,
+    hVat,
+    (sVatAmount/@DaysInCurrentMonth)*@DaysRemaining,
+    sVatAmount2,
+    hVatTranType,
+    CONVERT(DATETIME, DATEADD(day, 1, @CurrentDate), 101),
+    getdate()
+
+from trans t 
+where t.snotes in (N':MoveIn - Rental Income', N'Rental Income') 
+and t.suserdefined2 =  N':MoveIn'
+and t.hperson = @TenantID
+and t.hunit = @UnitID
+and t.hoffsetacct = 388
+/* avoid duplicates*/
+AND NOT EXISTS (
+    SELECT 1
+    FROM trans tx
+    WHERE 
+      tx.hPerson = @TenantID
+      AND tx.hUnit = @UnitID
+      AND tx.sNotes in (N':MoveIn - Rental Income', N'Rental Income') 
+      AND tx.hOffsetAcct = 388  
+      AND tx.sdateoccurred = CONVERT(DATETIME, DATEADD(day, 1, @CurrentDate), 101)
+  );
+
+
+insert into commschedule ( hTenant,
+    hAmendment,
+    dtFrom,
+    dtTo,
+    hChargeCode,
+    dArea,
+    dtInactive,
+    hAmendmentInactive,
+    iType)
+select cs.hTenant,
+    cs.hAmendment,
+    convert(datetime, (DATEADD(day, 1, @CurrentDate)), 101),
+    convert(datetime, @EndofCurrentMonth, 101),
+    10,
+    0,
+    NULL,
+    0,
+    2
+from commschedule cs 
+inner join commschedule csd on csd.htenant = cs.htenant and csd.dtfrom = cs.dtfrom 
+inner join camrule crd on crd.hschedule = csd.hmy
+where cs.hchargecode = 10 and csd.hchargecode = 11 
+and crd.notes = '3 Mths. @ 50% Off'
+and csd.dtto >= DATEADD(day, 1, @CurrentDate)   
+  AND csd.dtto <  DATEADD(day, 2, @CurrentDate)
+
+  /* old rent charge schedule should be updated to end same as the discount now */
+and cs.dtto >= DATEADD(day, 1, @CurrentDate)   
+  AND cs.dtto <  DATEADD(day, 2, @CurrentDate)
+AND cs.htenant = @TenantID;
+
+
+insert into camrule ( hTenant,
+    hAmendment,
+    hUnit,
+    dtFrom,
+    dtTo,
+    hSchedule,
+    iScheduleType,
+    Notes,
+    dtLastBilled,
+    bRevisedBilling,
+    LateFee,
+    isqftcol,
+    dEstimated,
+    hChargeCode,
+    iEstimateType,
+    iAmountPeriod,
+    hTaxCType,
+    dTaxRate,
+    dMonthlyAmount,
+    hLeaseCurrency,
+    iBillDay,
+    hTranType
+)
+select  
+    cr.hTenant,
+    cr.hAmendment,
+    cr.hUnit,
+    convert(datetime, (DATEADD(day, 1, @CurrentDate)), 101),
+    convert(datetime, @EndofCurrentMonth, 101),
+    cr.hSchedule,
+    2,
+    N'',
+    convert(datetime, @EndofCurrentMonth, 101),
+    -1,
+    0,
+    -1,
+    (cr.dEstimated/@DaysInCurrentMonth)*@DaysRemaining,
+    10,
+    2,
+    2,
+    NULL,
+    0,
+    (cr.dMonthlyAmount/@DaysInCurrentMonth)*@DaysRemaining,
+    2,
+    1,
+    4
+from camrule cr 
+inner join tenant t on t.hmyperson = cr.htenant
+inner join camrule crd on crd.htenant = cr.htenant and cr.dtfrom = crd.dtfrom and cr.hunit = crd.hunit 
+where cr.hchargecode = 10 
+and crd.hchargecode = 11 
+and crd.notes = '3 Mths. @ 50% Off'
+and crd.dtto >= DATEADD(day, 1, @CurrentDate)   
+  AND crd.dtto <  DATEADD(day, 2, @CurrentDate)
+
+  /* old Rent estimate should be updated to end same as the discount now after step 1*/
+and cr.dtto >= DATEADD(day, 1, @CurrentDate)   
+  AND cr.dtto <  DATEADD(day, 2, @CurrentDate)
+and cr.htenant = @TenantID; 
+
+END 
+GO
+
+//end sql 
