@@ -1,0 +1,440 @@
+//notes 
+	Copyright (c) 2025 by Yardi Systems, Inc.
+	Name
+		sp_PSC_50Per3MoDiscount.pkg
+	Description
+		Procedure to insert a prorated charge after 50 percent for 3 months discount ends and billing is switched from ANN to FOM
+	Notes
+		Package is for SQL Server and client specific. 
+	Client 
+    100070122
+    Canadian Mini Warehouse Properties Company
+		
+	Created
+		08/21/2025 by Beril Pehlivan  - Case#16959881 
+		exec sp_PSC_50Per3MoDiscount @TenantID;
+		
+//end notes 
+
+
+//sql 
+
+IF EXISTS(SELECT 1
+          FROM   sysobjects
+          WHERE  NAME = 'sp_PSC_50Per3MoDiscount')
+  DROP PROCEDURE sp_psc_50per3modiscount
+
+go
+
+CREATE PROCEDURE Sp_psc_50per3modiscount @TenantID NUMERIC,
+                                         @UnitID   NUMERIC
+AS
+  BEGIN
+      SET nocount ON;
+
+      /*DECLARE @NewHMY NUMERIC;*/
+      DECLARE @CurrentDate DATE;
+      DECLARE @EndofCurrentMonth DATE;
+      /*DECLARE @DaysRemaining INT;*/
+      /*DECLARE @DaysInCurrentMonth INT;*/
+
+	  /*
+      SELECT @NewHMY = Isnull(Max(hmy), 0) + 1
+      FROM   trans
+      WHERE  itype = 7;
+	  */
+
+      /* Current date should be the month the discount ends */
+      SELECT @CurrentDate = CONVERT(DATE, Getdate());
+      /*SELECT @DaysRemaining = Datediff(day, @CurrentDate, Eomonth(@CurrentDate));*/
+      /*SELECT @DaysInCurrentMonth = Day(Eomonth(@CurrentDate));*/
+      SELECT @EndofCurrentMonth = Eomonth(@CurrentDate);
+
+/* Step 1 - End the existing Rent Charge on the same date as the Discount ends */
+
+      UPDATE cr
+      SET    cr.dtto = crd.dtto, cr.bLocked = crd.bLocked
+      FROM   camrule cr
+             INNER JOIN tenant t
+                     ON t.hmyperson = cr.htenant
+             INNER JOIN camrule crd
+                     ON crd.htenant = cr.htenant
+                        AND cr.dtfrom = crd.dtfrom
+                        AND cr.hunit = crd.hunit
+      WHERE  cr.hchargecode = 10
+             AND crd.hchargecode = 11
+             AND crd.notes = '3 Mths. @ 50% Off'
+             /* Current date should be the month the discount ends */
+             AND crd.dtto >= Dateadd(day, 1, @CurrentDate)
+             AND crd.dtto < Dateadd(day, 2, @CurrentDate)
+             AND cr.htenant = @TenantID;
+
+		
+      UPDATE cs
+      SET    cs.dtto = csd.dtto, cs.bLocked = csd.bLocked
+      FROM   tenant t
+			 INNER JOIN commamendments cm
+					 ON cm.htenant = t.hmyperson
+			 INNER JOIN commschedule cs
+					 ON cs.hAmendment = cm.hmy
+					    AND cs.hTenant = t.hMyperson
+						AND cs.hchargecode = 10
+             INNER JOIN commschedule csd
+                     ON csd.htenant = cs.htenant
+                        AND csd.dtfrom = cs.dtfrom
+						AND csd.hAmendment = cm.hmy
+						AND csd.hchargecode = 11
+             INNER JOIN camrule crd
+                     ON crd.hschedule = csd.hmy
+					    AND crd.hTenant = t.hMYperson
+      WHERE  crd.notes = '3 Mths. @ 50% Off'
+             AND csd.dtto >= Dateadd(day, 1, @CurrentDate)
+             AND csd.dtto < Dateadd(day, 2, @CurrentDate)
+             AND cs.htenant = @TenantID;
+
+
+
+/*Step 2 - create a charge for rest of the month */
+ 
+      INSERT INTO commschedule
+                  (htenant,
+                   hamendment,
+                   dtfrom,
+                   dtto,
+                   hchargecode,
+                   hamendmentinactive,
+                   itype,
+				   cFixedOffset,
+				   hEstimateCharge,
+				   hMiscCharge,
+				   hTrueUpCharge,
+				   iAuditedReportDue,
+				   iEOYMonth,
+				   iFixedOffsetType,
+				   iFrequencyCalculation,
+				   iFrequencyReconciliation,
+				   iFrequencyBreakPoint,
+				   iSalesReportDueDays,
+				   iFrequencySalesReport,
+				   cBaseAmount,
+				   dArea,
+				   iCeilingType,
+				   cCeilingAmount,
+				   dAdminFeePercent,
+				   bLocked,
+				   hOriginal,
+				   bModified,
+				   bCumulative,
+				   iCAPIncreaseBasis,
+				   iCAPIncreaseOverYr,
+				   dCAPIncreasePct,
+				   dMin,
+				   dMax,
+				   iMonth,
+				   cOffsetReduction,
+				   bNaturalBreakpoint,
+				   bEstate,
+				   bExcludeRecoveryReconciliation,
+				   hTaxChargecode,
+				   dTaxRate,
+				   iCapAppliesTo,
+				   bDoNotCreateCharges,
+				   cFloorAmount,
+				   iFloorType,
+				   iFloorAppliesTo,
+				   iSalesEntryType,
+				   iMonthBeginDay,
+				   bIsSalesTaxAdmin,
+				   bIsUnitRecovery,
+				   dCalcRentStart,
+				   iCalcRentStep,
+				   dCalcRentIncrease,
+				   iCalcIncreaseType,
+				   bUseDailySales,
+				   iRentInputMethod,
+				   hBooking,
+				   hParentGroup,
+				   iPartialLeaseYear,
+				   bHoldCredit,
+				   iCapMinIncreaseType,
+				   bLesserOfOffsetOROvg,
+				   bRecovOvgOffset,
+				   hIncreaseChargeCode,
+				   bReconcile,
+				   bUnitSales,
+				   bBaseAmountCredit,
+				   iFreeRentType,
+				   iCalcRent,
+				   bUseOccupancyDate,
+				   dRecovOvgOffsetPercent,
+				   bDoNotBlend,
+				   iProration,
+				   bAnchorDeduction,
+				   bIsExcludeParentBaseYear,
+				   bIsExcludeParentCap,
+				   bIsFixedRecovery,
+				   iSalesChargeDueDays,
+				   hRate,
+				   bMultiUnit,
+				   hCMLChargesCalc
+				   )
+      SELECT cs.htenant,
+                   cs.hamendment,
+                   CONVERT(DATETIME, ( Dateadd(day, 1, @CurrentDate ) ), 101),
+				   CONVERT(DATETIME, @EndofCurrentMonth, 101),
+                   cs.hchargecode,
+                   cs.hamendmentinactive,
+                   cs.itype,
+				   cs.cFixedOffset,
+				   cs.hEstimateCharge,
+				   cs.hMiscCharge,
+				   cs.hTrueUpCharge,
+				   cs.iAuditedReportDue,
+				   cs.iEOYMonth,
+				   cs.iFixedOffsetType,
+				   cs.iFrequencyCalculation,
+				   cs.iFrequencyReconciliation,
+				   cs.iFrequencyBreakPoint,
+				   cs.iSalesReportDueDays,
+				   cs.iFrequencySalesReport,
+				   cs.cBaseAmount,
+				   cs.dArea,
+				   cs.iCeilingType,
+				   cs.cCeilingAmount,
+				   cs.dAdminFeePercent,
+				   cs.bLocked,
+				   cs.hOriginal,
+				   cs.bModified,
+				   cs.bCumulative,
+				   cs.iCAPIncreaseBasis,
+				   cs.iCAPIncreaseOverYr,
+				   cs.dCAPIncreasePct,
+				   cs.dMin,
+				   cs.dMax,
+				   cs.iMonth,
+				   cs.cOffsetReduction,
+				   cs.bNaturalBreakpoint,
+				   cs.bEstate,
+				   cs.bExcludeRecoveryReconciliation,
+				   cs.hTaxChargecode,
+				   cs.dTaxRate,
+				   cs.iCapAppliesTo,
+				   cs.bDoNotCreateCharges,
+				   cs.cFloorAmount,
+				   cs.iFloorType,
+				   cs.iFloorAppliesTo,
+				   cs.iSalesEntryType,
+				   cs.iMonthBeginDay,
+				   cs.bIsSalesTaxAdmin,
+				   cs.bIsUnitRecovery,
+				   cs.dCalcRentStart,
+				   cs.iCalcRentStep,
+				   cs.dCalcRentIncrease,
+				   cs.iCalcIncreaseType,
+				   cs.bUseDailySales,
+				   cs.iRentInputMethod,
+				   cs.hBooking,
+				   cs.hParentGroup,
+				   cs.iPartialLeaseYear,
+				   cs.bHoldCredit,
+				   cs.iCapMinIncreaseType,
+				   cs.bLesserOfOffsetOROvg,
+				   cs.bRecovOvgOffset,
+				   cs.hIncreaseChargeCode,
+				   cs.bReconcile,
+				   cs.bUnitSales,
+				   cs.bBaseAmountCredit,
+				   cs.iFreeRentType,
+				   cs.iCalcRent,
+				   cs.bUseOccupancyDate,
+				   cs.dRecovOvgOffsetPercent,
+				   cs.bDoNotBlend,
+				   cs.iProration,
+				   cs.bAnchorDeduction,
+				   cs.bIsExcludeParentBaseYear,
+				   cs.bIsExcludeParentCap,
+				   cs.bIsFixedRecovery,
+				   cs.iSalesChargeDueDays,
+				   cs.hRate,
+				   cs.bMultiUnit,
+				   cs.hCMLChargesCalc
+      FROM   tenant t
+			 INNER JOIN commamendments cm
+					 ON cm.htenant = t.hmyperson
+			 INNER JOIN commschedule cs
+					 ON cs.hAmendment = cm.hmy
+					    AND cs.hTenant = t.hMyperson
+						AND cs.hchargecode = 10
+             INNER JOIN commschedule csd
+                     ON csd.htenant = cs.htenant
+                        AND csd.dtfrom = cs.dtfrom
+						AND csd.hAmendment = cm.hmy
+						AND csd.hchargecode = 11
+             INNER JOIN camrule crd
+                     ON crd.hschedule = csd.hmy
+					    AND crd.hTenant = t.hMYperson
+      WHERE  crd.notes = '3 Mths. @ 50% Off'
+             AND csd.dtto >= Dateadd(day, 1, @CurrentDate)
+             AND csd.dtto < Dateadd(day, 2, @CurrentDate)
+             /* old rent charge schedule should be updated to end same as the discount now */
+             AND cs.dtto >= Dateadd(day, 1, @CurrentDate)
+             AND cs.dtto < Dateadd(day, 2, @CurrentDate)
+             AND cs.htenant = @TenantID;
+
+
+      INSERT INTO camrule
+                  (hChargeCode,
+				   hTenant,
+				   dtFrom,
+				   dtTo,
+				   iEstimateType,
+				   dEstimated,
+				   iMinType,
+				   iMaxType,
+				   iType,
+				   dTaxRate,
+				   BaseRule,
+				   GroupBP,
+				   Cumulative,
+				   Jan,
+				   Feb,
+				   Mar,
+				   Apr,
+				   May,
+				   Jun,
+				   Jul,
+				   Aug,
+				   Sep,
+				   Oct,
+				   Nov,
+				   Dec,
+				   Interest, 
+				   LateFee,
+				   bAch,
+				   iMaxPerMo,
+				   iCtPerMo,
+				   bHold,
+				   iAmountPeriod,
+				   hUnit,
+				   iBillDay,
+				   hTranType,
+				   iInvIsDue,
+				   iDueDay,
+				   iDueDayAfterMethod,
+				   hLeaseCurrency,
+				   dLFFactor,
+				   iTaxPointDay,
+				   bPaymentSchedule,
+				   bVatIsNotNetCurrency,
+				   bCheckAnnually,
+				   iLICorrection,
+				   dArea,
+				   dPricePerArea,
+				   hCurExchRateType,
+				   bRoundToWholeNumbers,
+				   dLFAdditionalFee,
+				   hAmendment,
+				   dMonthlyAmount,
+				   dtLastBilled,
+				   iScheduleType,
+				   hSchedule,
+				   bLocked,
+				   bLastDayOfperiod,
+				   bRevisedBilling,
+				   isqftcol,
+				   bcc,
+				   iNextIncreaseDue,
+				   hForeignDb,
+				   iCapMinIncreaseType)
+      SELECT cr.hChargeCode,
+			 cr.hTenant,
+			 CONVERT(DATETIME, ( Dateadd(day, 1, @CurrentDate ) ), 101),
+             CONVERT(DATETIME, @EndofCurrentMonth, 101),
+			 cr.IESTIMATETYPE,
+			 cr.DESTIMATED,
+			 cr.iMinType,
+			 cr.iMaxType,
+			 cr.iType,
+			 cr.dTaxRate,
+			 cr.BaseRule,
+			 cr.GroupBP,
+			 cr.Cumulative,
+			 cr.Jan,
+			 cr.Feb,
+			 cr.Mar,
+			 cr.Apr,
+			 cr.May,
+			 cr.Jun,
+			 cr.Jul,
+			 cr.Aug,
+			 cr.Sep,
+			 cr.Oct,
+			 cr.Nov,
+			 cr.Dec,
+			 cr.Interest,
+			 cr.LateFee,
+			 cr.bAch,
+			 cr.iMaxPerMO,
+			 cr.iCTPerMO,
+			 cr.bHold,
+			 cr.iAmountPeriod,
+			 cr.hUnit,
+			 1,
+			 cr.hTranType,
+			 cr.iInvIsDue,
+			 cr.iDueDay,
+			 cr.iDueDayAfterMethod,
+			 cr.hLeaseCurrency,
+			 cr.dLFFactor,
+			 cr.iTaxPointDay,
+			 cr.bPaymentSchedule,
+			 cr.bVatIsNotNetCurrency,
+			 cr.bCheckAnnually,
+			 cr.iLICorrection,
+			 cr.dArea,
+			 cr.dPricePerArea,
+			 cr.hCurExchRateType,
+			 cr.bRoundToWholeNumbers,
+			 cr.dLFAdditionalFee,
+			 cr.hAmendment,
+			 cr.dMonthlyAmount,
+			 NULL,
+			 cr.iScheduleType,
+			 cs.hMy,
+			 cr.bLocked,
+			 cr.bLastDayOfperiod,
+			 cr.bRevisedBilling,
+			 cr.isqftcol,
+			 cr.bcc,
+			 cr.iNextIncreaseDue,
+			 cr.hForeignDb,
+			 cr.iCapMinIncreaseType
+      FROM   tenant t
+			 INNER JOIN commamendments cm
+					 ON cm.htenant = t.hmyperson
+             INNER JOIN camrule cr
+                     ON t.hmyperson = cr.htenant
+						AND cr.hAmendment = cm.hMy
+						AND cr.hChargeCode = 10
+             INNER JOIN camrule crd
+                     ON crd.htenant = cr.htenant
+                        AND cr.dtfrom = crd.dtfrom
+                        AND cr.hunit = crd.hunit
+						AND crd.hChargeCode = 11
+			 INNER JOIN CommSchedule cs
+					 ON cs.hTenant = t.hMyperson
+						AND cs.hAmendment = cr.hAmendment
+						AND cs.hChargeCode = cr.hChargeCode
+						AND cs.dtFrom = CONVERT(DATETIME, ( Dateadd(day, 1, @CurrentDate )), 101)
+						AND cs.dtto = CONVERT(DATETIME, @EndofCurrentMonth, 101)
+						AND cs.hmy IN (Select MAX(cs2.hmy) from commschedule cs2 where cs2.htenant = t.hmyperson AND cs2.hChargecode = 10)
+      WHERE  crd.notes = '3 Mths. @ 50% Off'
+             AND crd.dtto >= Dateadd(day, 1, @CurrentDate)
+             AND crd.dtto < Dateadd(day, 2, @CurrentDate)
+             /* old Rent estimate should be updated to end same as the discount now after step 1*/
+             AND cr.dtto >= Dateadd(day, 1, @CurrentDate)
+             AND cr.dtto < Dateadd(day, 2, @CurrentDate)
+             AND cr.htenant = @TenantID;
+END
+ 
+//end sql 
