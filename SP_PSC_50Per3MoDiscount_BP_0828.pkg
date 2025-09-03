@@ -96,6 +96,103 @@ AS
 
 /*Step 2 - create a charge for rest of the month */
  
+
+INSERT INTO TRANS (hBaseCurrency,
+    hTranCurrency,
+    sTranAmount,
+    sInvNum,
+    hmy,
+    iType,
+    hProp,
+    bOpen,
+    hPerson,
+    uRef,
+    sDateOccurred,
+    uPostDate,
+    sTotalAmount,
+    hOffsetAcct,
+    hAccrualAcct,
+    iType1,
+    hRetentionAcct,
+    sUserDefined2,
+    hParent1,
+    hParent2,
+    sAmountPaid,
+    HoldPayment,
+    ConsolidateCheck,
+    sNotes,
+    hUnit,
+    SOTHERDATE2,
+    SOTHERDATE3,
+    SOTHERDATE4,
+    hVat,
+    sVatAmount,
+    sVatAmount2,
+    hVatTranType,
+    sDateCreated,
+    dtStamp)
+VALUES 
+(t.hBaseCurrency,
+    t.hTranCurrency,
+(t.stranamount/@DaysInCurrentMonth)*@DaysRemaining,
+    t.sInvNum,
+    @NewHMY,
+    t.iType,
+    t.hProp,
+    t.bOpen,
+    t.hPerson,
+    t.uRef,
+DateAdd(day, 1, c.dtto),
+    DateAdd(day, 1, c.dtto),
+(t.stotalamount/@DaysInCurrentMonth)*@DaysRemaining,
+    t.hOffsetAcct,
+    t.hAccrualAcct,
+    t.iType1,
+    t.hRententionAcct,
+    '',
+    t.hParent1,
+    t.hParent2,
+    t.sAmountPaid,
+    t.HoldPayment,
+    t.ConsolidateCheck,
+   N'Rental Income Proration',
+    t.hUnit,
+DateAdd(day, 1, c.dtto),
+convert(datetime, DATEADD(DAY, -1, DATEADD(MONTH, 1, DATEFROMPARTS(YEAR(c.dtto), MONTH(c.dtto), 1)))),
+DateAdd(day, 1, c.dtto),
+    t.hVat,
+    t.sVatAmount,
+    t.sVatAmount2,
+    t.hVatTranType,
+    convert(datetime, getdate(), 101),
+    getdate()
+)
+from trans t 
+inner join camrule c on c.htenant = t.hperson
+where t.snotes = N':Advance - Rent'
+and t.suserdefined2 =  N':PeriodsIAV'
+and c.hchargecode = 10
+AND c.dtto >= Dateadd(day, 1, @CurrentDate)
+AND c.dtto < Dateadd(day, 2, @CurrentDate)
+and day(c.dtfrom) > 1
+and t.hoffsetacct = 388
+and t.hretentionacct = 10
+AND t.sotherdate3 >= Dateadd(day, 1, @CurrentDate)
+AND t.sotherdate3 < Dateadd(day, 2, @CurrentDate)
+AND t.hperson = TenantID
+AND NOT EXISTS (
+    SELECT 1
+    FROM trans tx
+    WHERE 
+      tx.hPerson = @TenantID
+      AND tx.sNotes = N'Rental Income'
+      AND tx.sTranAmount = t.sTranAmount
+      AND tx.hOffsetAcct = 388  
+  	  AND YEAR(tx.sDateOccurred) = YEAR(t.sDateOccurred)
+	  AND MONTH(tx.sDateOccurred) = MONTH(t.sDateOccurred));
+
+
+
       INSERT INTO commschedule
                   (htenant,
                    hamendment,
@@ -138,6 +235,7 @@ AS
 				   hTaxChargecode,
 				   dTaxRate,
 				   iCapAppliesTo,
+                                   dtcreated,
 				   bDoNotCreateCharges,
 				   cFloorAmount,
 				   iFloorType,
@@ -180,7 +278,8 @@ AS
 				   )
       SELECT cs.htenant,
                    cs.hamendment,
-                   CONVERT(DATETIME, ( Dateadd(day, 1, @CurrentDate ) ), 101),
+                  /* CONVERT(DATETIME, ( Dateadd(day, 1, @CurrentDate ) ), 101),*/
+                  CONVERT(datetime, DATEADD(day, 1, csd.dtto), 101),
 				   CONVERT(DATETIME, @EndofCurrentMonth, 101),
                    cs.hchargecode,
                    cs.hamendmentinactive,
@@ -219,6 +318,7 @@ AS
 				   cs.hTaxChargecode,
 				   cs.dTaxRate,
 				   cs.iCapAppliesTo,
+                                   getdate(),
 				   cs.bDoNotCreateCharges,
 				   cs.cFloorAmount,
 				   cs.iFloorType,
@@ -285,7 +385,7 @@ AS
       INSERT INTO camrule
                   (hChargeCode,
 				   hTenant,
-				   dtFrom,
+				   dtfrom,
 				   dtTo,
 				   iEstimateType,
 				   dEstimated,
@@ -293,6 +393,7 @@ AS
 				   iMaxType,
 				   iType,
 				   dTaxRate,
+                                   notes,
 				   BaseRule,
 				   GroupBP,
 				   Cumulative,
@@ -344,17 +445,20 @@ AS
 				   isqftcol,
 				   bcc,
 				   iNextIncreaseDue,
+                                   dtcreated,
 				   hForeignDb,
 				   iCapMinIncreaseType)
       SELECT cr.hChargeCode,
 			 cr.hTenant,
-			 CONVERT(DATETIME, ( Dateadd(day, 1, @CurrentDate ) ), 101),
+			/* CONVERT(DATETIME, ( Dateadd(day, 1, @CurrentDate ) ), 101),*/
+                         CONVERT(datetime, DATEADD(day, 1, crd.dtto), 101),
              CONVERT(DATETIME, @EndofCurrentMonth, 101),
 			 cr.IESTIMATETYPE,
 			 (cr.DESTIMATED/@DaysInCurrentMonth)*@DaysRemaining,
 			 cr.iMinType,
 			 cr.iMaxType,
 			 cr.iType,
+                         N'Rental Income Proration',
 			 cr.dTaxRate,
 			 cr.BaseRule,
 			 cr.GroupBP,
@@ -407,6 +511,7 @@ AS
 			 cr.isqftcol,
 			 cr.bcc,
 			 cr.iNextIncreaseDue,
+                         getdate(),
 			 cr.hForeignDb,
 			 cr.iCapMinIncreaseType
       FROM   tenant t
@@ -442,8 +547,108 @@ AS
 
 
 /*Step 3 - create a charge starting on first of the next month */
- 
- /*please help */
+
+ /* insert into trans - dont think we need 
+
+ insert into
+  trans (
+    hBaseCurrency,
+    hTranCurrency,
+    sTranAmount,
+    sInvNum,
+    hmy,
+    iType,
+    hProp,
+    bOpen,
+    hPerson,
+    uRef,
+    sDateOccurred,
+    uPostDate,
+    sTotalAmount,
+    hOffsetAcct,
+    hAccrualAcct,
+    iType1,
+    hRetentionAcct,
+    sUserDefined2,
+    hParent1,
+    hParent2,
+    sAmountPaid,
+    HoldPayment,
+    ConsolidateCheck,
+    sNotes,
+    hUnit,
+    SOTHERDATE2,
+    SOTHERDATE3,
+    SOTHERDATE4,
+    hVat,
+    sVatAmount,
+    sVatAmount2,
+    hVatTranType,
+    sDateCreated,
+    dtStamp
+  )
+
+  select hBaseCurrency,
+    hTranCurrency,
+    1.00,
+    sInvNum,
+    @NewHMY,
+    iType,
+    hProp,
+    bOpen,
+    hPerson,
+    uRef,
+    DateAdd(day, 1, @EndofCurrentMonth),
+    uPostDate,
+    sTotalAmount,
+    hOffsetAcct,
+    hAccrualAcct,
+    iType1,
+    hRententionAcct,
+    '',
+    hParent1,
+    hParent2,
+    sAmountPaid,
+    HoldPayment,
+    ConsolidateCheck,
+    'Rental Income',
+    hUnit,
+    DateAdd(day, 1, @EndofCurrentMonth),
+    DATEADD(DAY, -1, DATEADD(MONTH, 2, DATEFROMPARTS(YEAR(sDateOccurred), MONTH(sDateOccurred), 1))),
+    DateAdd(day, 1, @EndofCurrentMonth),
+    hVat,
+    sVatAmount,
+    sVatAmount2,
+    hVatTranType,
+    convert(datetime, getdate(), 101),
+    getdate()
+
+from trans t 
+inner join camrule c on c.htenant = t.hperson
+where t.snotes = N':Advance - Rent'
+and t.suserdefined2 =  N':PeriodsIAV'
+and c.hchargecode = 10
+AND c.dtto >= Dateadd(day, 1, @CurrentDate)
+AND c.dtto < Dateadd(day, 2, @CurrentDate)
+and day(c.dtfrom) > 1
+and t.hperson = @TenantID
+and t.hoffsetacct = 388
+and t.hretentionacct = 10
+AND t.sotherdate3 >= Dateadd(day, 1, @CurrentDate)
+AND t.sotherdate3 < Dateadd(day, 2, @CurrentDate)
+AND NOT EXISTS (
+    SELECT 1
+    FROM trans tx
+    WHERE 
+      tx.hPerson = @TenantID
+      AND tx.sNotes = N'Rental Income'
+      AND tx.sTranAmount = t.sTranAmount
+      AND tx.hOffsetAcct = 388  
+  	  AND YEAR(tx.sDateOccurred) = YEAR(t.sDateOccurred)
+	  AND MONTH(tx.sDateOccurred) = MONTH(t.sDateOccurred)
+  ) ;
+
+  */
 
    
       INSERT INTO commschedule  
@@ -488,6 +693,7 @@ AS
        hTaxChargecode,  
        dTaxRate,  
        iCapAppliesTo,  
+       dtCreated,
        bDoNotCreateCharges,  
        cFloorAmount,  
        iFloorType,  
@@ -568,6 +774,7 @@ AS
        cs.bExcludeRecoveryReconciliation,  
        cs.hTaxChargecode,         cs.dTaxRate,  
        cs.iCapAppliesTo,  
+       getdate(),
        cs.bDoNotCreateCharges,  
        cs.cFloorAmount,  
        cs.iFloorType,  
@@ -607,32 +814,24 @@ AS
        cs.hRate,  
        cs.bMultiUnit,  
        cs.hCMLChargesCalc  
-      FROM   tenant t  
-    INNER JOIN commamendments cm  
-      ON cm.htenant = t.hmyperson  
-    INNER JOIN commschedule cs  
-      ON cs.hAmendment = cm.hmy  
-         AND cs.hTenant = t.hMyperson  
-      AND cs.hchargecode = 10  
-             INNER JOIN commschedule csd  
-                     ON csd.htenant = cs.htenant  
-                        AND csd.dtfrom = cs.dtfrom  
-      AND csd.hAmendment = cm.hmy  
-      AND csd.hchargecode = 11  
-             INNER JOIN camrule crd  
-                     ON crd.hschedule = csd.hmy  
-         AND crd.hTenant = t.hMYperson  
-      WHERE  crd.notes = '3 Mths. @ 50% Off'  
+FROM
+  commschedule cs
+  INNER JOIN tenant t on cs.hTenant = t.hMyperson
+  INNER JOIN commamendments cm ON cm.htenant = t.hmyperson and cs.hamendment = cm.hmy
+  INNER JOIN commschedule csd ON csd.htenant = cs.htenant AND csd.dtfrom = cs.dtfrom AND csd.hAmendment = cm.hmy
+  INNER JOIN camrule crd ON crd.hTenant = t.hMYperson /*AND crd.hschedule = cs.hmy   */
+WHERE
+  crd.notes = '3 Mths. @ 50% Off'
+  and crd.hchargecode = 11
+  AND cast(cs.dtto AS date) = @EndofCurrentMonth
+  AND cs.hchargecode = 10
+  /* old rent charge schedule should be updated to end same as the discount now */
+  AND cast(crd.dtto as date) >= Dateadd(day, 1, @CurrentDate)
+  AND cast(crd.dtto as date) < Dateadd(day, 2, @CurrentDate)
+  AND t.hmyperson = @TenantID;
+  
+  
 
-      /*these conditions need to be updated I think*/
-             AND csd.dtto >= Dateadd(day, 1, @CurrentDate)  
-             AND csd.dtto < Dateadd(day, 2, @CurrentDate)  
-             /* old rent charge schedule should be updated to end same as the discount now */  
-             AND cs.dtto >= Dateadd(day, 1, @CurrentDate)  
-             AND cs.dtto < Dateadd(day, 2, @CurrentDate)  
-             AND cs.htenant = @TenantID;  
-  
-  
       INSERT INTO camrule  
                   (hChargeCode,  
        hTenant,  
@@ -695,12 +894,14 @@ AS
        isqftcol,  
        bcc,  
        iNextIncreaseDue,  
+       dtcreated,
        hForeignDb,  
-       iCapMinIncreaseType)  
-      SELECT cr.hChargeCode,  
+       iCapMinIncreaseType) 
+
+ SELECT cr.hChargeCode,  
     cr.hTenant,  
     CONVERT(DATETIME, ( Dateadd(day, 1, @EndofCurrentMonth) ), 101),  
-             NULL,  
+    NULL,  
     cr.IESTIMATETYPE,  
     cr.DESTIMATED,  
     cr.iMinType,  
@@ -758,40 +959,28 @@ AS
     cr.isqftcol,  
     cr.bcc,  
     cr.iNextIncreaseDue,  
+    getdate(),
     cr.hForeignDb,  
     cr.iCapMinIncreaseType  
-      FROM   tenant t  
-    INNER JOIN commamendments cm  
-      ON cm.htenant = t.hmyperson  
-             INNER JOIN camrule cr  
-                     ON t.hmyperson = cr.htenant  
-      AND cr.hAmendment = cm.hMy  
-      AND cr.hChargeCode = 10  
-             INNER JOIN camrule crd  
-                     ON crd.htenant = cr.htenant  
-                        AND cr.dtfrom = crd.dtfrom  
-                        AND cr.hunit = crd.hunit  
-      AND crd.hChargeCode = 11  
-    INNER JOIN CommSchedule cs  
-      ON cs.hTenant = t.hMyperson  
-      AND cs.hAmendment = cr.hAmendment  
-      AND cs.hChargeCode = cr.hChargeCode  
-      AND cs.dtFrom = CONVERT(DATETIME, ( Dateadd(day, 1, @CurrentDate )), 101)  
-      AND cs.dtto = CONVERT(DATETIME, @EndofCurrentMonth, 101)  
-      AND cs.hmy IN (Select MAX(cs2.hmy) from commschedule cs2 where cs2.htenant = t.hmyperson AND cs2.hChargecode = 10)  
-      WHERE  crd.notes = '3 Mths. @ 50% Off'  
-
-      /*these conditions need to be updated I think*/
-             AND crd.dtto >= Dateadd(day, 1, @CurrentDate)  
-             AND crd.dtto < Dateadd(day, 2, @CurrentDate)  
-             /* old Rent estimate should be updated to end same as the discount now after step 1*/  
-             AND cr.dtto >= Dateadd(day, 1, @CurrentDate)  
-             AND cr.dtto < Dateadd(day, 2, @CurrentDate)  
-             AND cr.htenant = @TenantID;  
+     FROM
+  tenant t
+  INNER JOIN commamendments cm ON cm.htenant = t.hmyperson
+  INNER JOIN camrule cr ON t.hmyperson = cr.htenant AND cr.hAmendment = cm.hMy AND cr.hChargeCode = 10
+  INNER JOIN camrule crd ON crd.htenant = cr.htenant AND cr.dtfrom = crd.dtfrom AND cr.hunit = crd.hunit AND crd.hChargeCode = 11
+  INNER JOIN CommSchedule cs ON cs.hTenant = t.hMyperson /* AND cs.hAmendment = cr.hAmendment*/
+  AND cs.hChargeCode = cr.hChargeCode
+  AND cs.dtFrom = CONVERT(DATETIME, (Dateadd(day, 1, @CurrentDate)), 101)
+  AND cs.dtto = CONVERT(DATETIME, @EndofCurrentMonth, 101) 
+  /*AND cs.hmy IN (Select MAX(cs2.hmy) from commschedule cs2 where cs2.htenant = t.hmyperson AND cs2.hChargecode = 10)*/
+WHERE crd.notes = '3 Mths. @ 50% Off'
+  and crd.hchargecode = 11
+  AND cast(cs.dtto AS date) = @EndofCurrentMonth
+  AND cs.hchargecode = 10
+  /* old rent charge schedule should be updated to end same as the discount now */
+  AND cast(crd.dtto as date) >= Dateadd(day, 1, @CurrentDate)
+  AND cast(crd.dtto as date) < Dateadd(day, 2, @CurrentDate)
+  AND cr.htenant = @TenantId;
   
-
-
-
 END
  
 //end sql 
