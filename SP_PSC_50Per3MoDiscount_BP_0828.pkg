@@ -131,8 +131,8 @@ INSERT INTO TRANS (hBaseCurrency,
     hVatTranType,
     sDateCreated,
     dtStamp)
-VALUES 
-(t.hBaseCurrency,
+select 
+t.hBaseCurrency,
     t.hTranCurrency,
 (t.stranamount/@DaysInCurrentMonth)*@DaysRemaining,
     t.sInvNum,
@@ -148,7 +148,7 @@ DateAdd(day, 1, c.dtto),
     t.hOffsetAcct,
     t.hAccrualAcct,
     t.iType1,
-    t.hRententionAcct,
+    t.hRetentionAcct,
     '',
     t.hParent1,
     t.hParent2,
@@ -166,7 +166,7 @@ DateAdd(day, 1, c.dtto),
     t.hVatTranType,
     convert(datetime, getdate(), 101),
     getdate()
-)
+
 from trans t 
 inner join camrule c on c.htenant = t.hperson
 where t.snotes = N':Advance - Rent'
@@ -179,7 +179,7 @@ and t.hoffsetacct = 388
 and t.hretentionacct = 10
 AND t.sotherdate3 >= Dateadd(day, 1, @CurrentDate)
 AND t.sotherdate3 < Dateadd(day, 2, @CurrentDate)
-AND t.hperson = TenantID
+AND t.hperson = @TenantID
 AND NOT EXISTS (
     SELECT 1
     FROM trans tx
